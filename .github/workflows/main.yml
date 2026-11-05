@@ -3,10 +3,12 @@ name: Build IRAQ CHESS HUB Android APK from source ZIP
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches:
+      - main
+      - master
     paths:
       - 'IRAQ_CHESS_HUB_Android_Dev_v1.11.0.zip'
-      - '.github/workflows/build-android-apk-from-zip.yml'
+      - '.github/workflows/main.yml'
 
 permissions:
   contents: read
@@ -15,11 +17,12 @@ jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
     steps:
-      - name: Check out repository containing the source ZIP
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate and extract v1.11.0 source archive
+      - name: Validate and extract source ZIP
         shell: bash
         run: |
           set -euo pipefail
@@ -30,20 +33,22 @@ jobs:
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/iraq-src"
           PROJECT_DIR="$RUNNER_TEMP/iraq-src/IRAQ_CHESS_HUB_Android"
           test -f "$PROJECT_DIR/settings.gradle.kts"
-          test -f "$PROJECT_DIR/.github/workflows/android-apk.yml"
+          test -f "$PROJECT_DIR/tools/vision_reference_check.py"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Set up Python for reference-board vision regression
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Verify reference image and bundled 26-PNG templates
+      - name: Install Python dependencies
+        run: python -m pip install --disable-pip-version-check pillow numpy
+
+      - name: Run vision reference check
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJECT_DIR"
-          python -m pip install --disable-pip-version-check pillow numpy
           python tools/vision_reference_check.py
 
       - name: Set up JDK 17
@@ -52,29 +57,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle 8.9
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
-        with:
-          packages: 'platform-tools'
-      - name: Install Android SDK, NDK r27c and Kotlin compiler 2.0.21
+
+      - name: Install Android SDK and NDK
         shell: bash
         run: |
           set -euo pipefail
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
-          curl -fsSL https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip \
-            -o "$RUNNER_TEMP/kotlin-compiler.zip"
-          mkdir -p "$RUNNER_TEMP/kotlinc"
-          unzip -q "$RUNNER_TEMP/kotlin-compiler.zip" -d "$RUNNER_TEMP/kotlinc"
-          echo "$RUNNER_TEMP/kotlinc/kotlinc/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/kotlinc/kotlinc/bin/kotlinc" -version
 
-      - name: Check out official Stockfish 19 source
+      - name: Checkout Stockfish 19
         uses: actions/checkout@v4
         with:
           repository: official-stockfish/Stockfish
@@ -82,33 +81,30 @@ jobs:
           path: .stockfish
           fetch-depth: 1
 
-      - name: Build real Stockfish 19 for Android ARM64
+      - name: Build Stockfish for Android ARM64
         shell: bash
         run: |
           set -euo pipefail
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
           export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
           export PATH="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+
           make -C .stockfish/src -j2 net
           make -C .stockfish/src -j2 build ARCH=armv8 COMP=ndk COMPCXX=aarch64-linux-android26-clang++
           make -C .stockfish/src strip ARCH=armv8 COMP=ndk COMPCXX=aarch64-linux-android26-clang++
-          mkdir -p "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a" "$PROJECT_DIR/app/src/main/assets/licenses"
+
+          mkdir -p "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a"
+          mkdir -p "$PROJECT_DIR/app/src/main/assets/licenses"
+
           install -m 0755 .stockfish/src/stockfish "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libstockfish.so"
           readelf -h "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libstockfish.so" | grep -q 'AArch64'
-          cp .stockfish/COPYING "$PROJECT_DIR/app/src/main/assets/licenses/Stockfish-GPL-3.0.txt"
-          STOCKFISH_COMMIT="$(git -C .stockfish rev-parse HEAD)"
-          STOCKFISH_SHA256="$(sha256sum "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libstockfish.so" | cut -d' ' -f1)"
-          {
-            echo "Engine: Stockfish 19 (official-stockfish/Stockfish, tag sf_19)"
-            echo "Source commit: ${STOCKFISH_COMMIT}"
-            echo "Target: Android arm64-v8a / ARMv8"
-            echo "NDK: r27c (27.2.12479018), Android API 26"
-            echo "Binary SHA-256: ${STOCKFISH_SHA256}"
-            echo "License: GPL-3.0; see Stockfish-GPL-3.0.txt and the corresponding-source artifact."
-            echo "Source: https://github.com/official-stockfish/Stockfish/tree/sf_19"
-          } > "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt"
 
-      - name: Build host Stockfish for real UCI integration tests
+          cp .stockfish/COPYING "$PROJECT_DIR/app/src/main/assets/licenses/Stockfish-GPL-3.0.txt"
+
+          echo "Stockfish 19, official tag sf_19" > "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt"
+          echo "Target: Android arm64-v8a" >> "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt"
+
+      - name: Build host Stockfish for tests
         shell: bash
         run: |
           set -euo pipefail
@@ -116,7 +112,7 @@ jobs:
           make -C "$RUNNER_TEMP/stockfish-host/src" clean
           make -C "$RUNNER_TEMP/stockfish-host/src" -j2 build ARCH=x86-64 COMP=gcc
 
-      - name: Run 219 core checks and real Stockfish UCI smoke tests
+      - name: Run core checks
         shell: bash
         env:
           REAL_STOCKFISH_BINARY: ${{ runner.temp }}/stockfish-host/src/stockfish
@@ -127,9 +123,11 @@ jobs:
 
       - name: Build debug APK
         shell: bash
-        run: gradle --no-daemon -p "$PROJECT_DIR" :app:assembleDebug
+        run: |
+          set -euo pipefail
+          gradle --no-daemon -p "$PROJECT_DIR" :app:assembleDebug
 
-      - name: Verify APK contains the ARM64 Stockfish engine
+      - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
@@ -137,18 +135,15 @@ jobs:
           test -s "$APK"
           unzip -l "$APK" | grep -F 'lib/arm64-v8a/libstockfish.so'
           test -s "$PROJECT_DIR/app/src/main/assets/licenses/Stockfish-GPL-3.0.txt"
-          test -s "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt"
 
-      - name: Prepare corresponding Stockfish source and license bundle
+      - name: Prepare Stockfish source bundle
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/release"
-          tar -C .stockfish -czf "$RUNNER_TEMP/release/stockfish-19-corresponding-source.tar.gz" \
-            --exclude='.git' --exclude='src/stockfish' --exclude='src/*.o' \
-            --exclude='src/*.profraw' --exclude='src/temp_builds' .
+          tar -C .stockfish -czf "$RUNNER_TEMP/release/stockfish-19-source.tar.gz" \
+            --exclude='.git' --exclude='src/stockfish' --exclude='src/*.o' .
           cp "$PROJECT_DIR/app/src/main/assets/licenses/Stockfish-GPL-3.0.txt" "$RUNNER_TEMP/release/"
-          cp "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt" "$RUNNER_TEMP/release/"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -157,9 +152,9 @@ jobs:
           path: ${{ runner.temp }}/iraq-src/IRAQ_CHESS_HUB_Android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Upload Stockfish corresponding source and GPL license
+      - name: Upload Stockfish source
         uses: actions/upload-artifact@v4
         with:
-          name: IRAQ-CHESS-HUB-Stockfish-19-GPL-source
+          name: IRAQ-CHESS-HUB-Stockfish-19-source
           path: ${{ runner.temp }}/release/*
           if-no-files-found: error
