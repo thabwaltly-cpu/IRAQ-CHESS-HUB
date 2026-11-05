@@ -57,9 +57,10 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Set up Android SDK
+      -       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
+        with:
+          packages: 'platform-tools'
       - name: Install Android SDK, NDK r27c and Kotlin compiler 2.0.21
         shell: bash
         run: |
