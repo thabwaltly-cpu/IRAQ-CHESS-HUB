@@ -1,3 +1,4 @@
+
 name: Build IRAQ CHESS HUB Android APK from source ZIP
 
 on:
@@ -99,7 +100,8 @@ jobs:
           install -m 0755 .stockfish/src/stockfish "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libstockfish.so"
           readelf -h "$PROJECT_DIR/app/src/main/jniLibs/arm64-v8a/libstockfish.so" | grep -q 'AArch64'
 
-          cp .stockfish/Copying.txt"$PROJECT_DIR/app/src/main/assets/licenses/Stockfish-GPL-3.0.txt"
+          test -f .stockfish/Copying.txt
+          cp .stockfish/Copying.txt "$PROJECT_DIR/app/src/main/assets/licenses/Stockfish-GPL-3.0.txt"
 
           echo "Stockfish 19, official tag sf_19" > "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt"
           echo "Target: Android arm64-v8a" >> "$PROJECT_DIR/app/src/main/assets/licenses/STOCKFISH_BUILD_INFO.txt"
