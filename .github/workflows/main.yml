@@ -37,6 +37,45 @@ jobs:
           test -f "$PROJECT_DIR/tools/vision_reference_check.py"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+      - name: Fix MainActivity Kotlin reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          project = Path(os.environ["PROJECT_DIR"])
+          source = project / "app" / "src" / "main"
+          files = list(source.rglob("MainActivity.kt"))
+
+          if len(files) != 1:
+              raise SystemExit(
+                  f"Expected exactly one MainActivity.kt, found {len(files)}"
+              )
+
+          file = files[0]
+          content = file.read_text(encoding="utf-8")
+
+          old = "game.sanMoves.getOrNull(replayPly - 1)"
+          new = "importedPgn?.sanMoves?.getOrNull(replayPly - 1)"
+
+          count = content.count(old)
+          if count != 1:
+              raise SystemExit(
+                  f"Expected exactly one faulty reference, found {count}. "
+                  "No changes made."
+              )
+
+          content = content.replace(old, new, 1)
+          file.write_text(content, encoding="utf-8")
+
+          if old in file.read_text(encoding="utf-8"):
+              raise SystemExit("Fix verification failed.")
+
+          print(f"SUCCESS: Fixed {file}")
+          PY
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
